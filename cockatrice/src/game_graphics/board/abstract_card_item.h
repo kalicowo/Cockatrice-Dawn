@@ -29,6 +29,7 @@ class AbstractCardItem : public ArrowTarget, public IAnimatedItem
 {
     Q_OBJECT
 protected:
+    void updateTargetScale();
     ExactCard exactCard;
     int id;
     CardRef cardRef;
@@ -37,6 +38,10 @@ protected:
     int tapAngle;
     QString color;
     QColor bgColor;
+    virtual bool shouldHideName() const
+    {
+        return false;
+    }
 
 private:
     bool isHovered;
@@ -45,6 +50,10 @@ private:
     int selectionCollapseGeneration = 0;
 
     qreal hoverTargetScale = 1.0;
+    virtual qreal selectionScaleMultiplier() const
+    {
+        return 1.0;
+    }
 
     static constexpr qreal HOVER_SCALE_IN_SPEED = 0.35;
     static constexpr qreal HOVER_SCALE_OUT_SPEED = 0.18;
@@ -84,7 +93,7 @@ public:
     QRectF boundingRect() const override;
     QPainterPath shape() const override;
     QSizeF getTranslatedSize(QPainter *painter) const;
-    void paintPicture(QPainter *painter, const QSizeF &translatedSize, int angle);
+    void paintPicture(QPainter *painter, const QSizeF &translatedSize, int angle, bool hideName = false);
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
     ExactCard getCard() const
     {

@@ -152,7 +152,7 @@ void AbstractCardItem::transformPainter(QPainter *painter, const QSizeF &transla
     painter->setFont(f);
 }
 
-void AbstractCardItem::paintPicture(QPainter *painter, const QSizeF &translatedSize, int angle)
+void AbstractCardItem::paintPicture(QPainter *painter, const QSizeF &translatedSize, int angle, bool hideName)
 {
     qreal scaleFactor = translatedSize.width() / boundingRect().width();
     QPixmap translatedPixmap;
@@ -185,7 +185,8 @@ void AbstractCardItem::paintPicture(QPainter *painter, const QSizeF &translatedS
         painter->drawPath(shape());
     }
 
-    if (translatedPixmap.isNull() || SettingsCache::instance().cardsDisplay().getDisplayCardNames() || facedown) {
+    if (!hideName &&
+        (translatedPixmap.isNull() || SettingsCache::instance().cardsDisplay().getDisplayCardNames() || facedown)) {
         painter->save();
         transformPainter(painter, translatedSize, angle);
         painter->setPen(Qt::white);
@@ -215,7 +216,7 @@ void AbstractCardItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *
     painter->save();
 
     QSizeF translatedSize = getTranslatedSize(painter);
-    paintPicture(painter, translatedSize, tapAngle);
+    paintPicture(painter, translatedSize, tapAngle, shouldHideName());
 
     painter->setRenderHint(QPainter::Antialiasing, false);
 
@@ -250,6 +251,19 @@ void AbstractCardItem::setCardRef(const CardRef &_cardRef)
     refreshCardInfo();
 }
 
+void AbstractCardItem::updateTargetScale()
+{
+    const bool enlargeCard = isHovered && SettingsCache::instance().cardsDisplay().getScaleCards();
+    hoverTargetScale = (enlargeCard ? 1.2 : 1.0) * selectionScaleMultiplier();
+
+    if (scene()) {
+        if (auto *gameScene = dynamic_cast<GameScene *>(scene())) {
+            gameScene->registerAnimationItem(this);
+        }
+    }
+
+    update();
+}
 
 void AbstractCardItem::setHovered(bool _hovered)
 {
@@ -270,13 +284,7 @@ void AbstractCardItem::setHovered(bool _hovered)
     setZValue(_hovered ? ZValues::HOVERED_CARD : realZValue);
     setTransformOriginPoint(_hovered ? CardDimensions::WIDTH_HALF_F : 0, _hovered ? CardDimensions::HEIGHT_HALF_F : 0);
 
-    hoverTargetScale = _hovered && SettingsCache::instance().cardsDisplay().getScaleCards() ? 1.2 : 1.0;
-
-    if (scene()) {
-        if (auto *gameScene = dynamic_cast<GameScene *>(scene())) {
-            gameScene->registerAnimationItem(this);
-        }
-    }
+    updateTargetScale();
 
     update();
 }

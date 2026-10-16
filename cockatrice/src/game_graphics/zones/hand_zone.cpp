@@ -88,46 +88,63 @@ void HandZone::paint(QPainter *painter, const QStyleOptionGraphicsItem * /*optio
     painter->fillRect(boundingRect(), brush);
 }
 
+
 void HandZone::reorganizeCards()
 {
     if (!getLogic()->getCards().isEmpty()) {
         const int cardCount = getLogic()->getCards().size();
+
         if (SettingsCache::instance().userInterface().getHorizontalHand()) {
-            bool leftJustified = SettingsCache::instance().userInterface().getLeftJustified();
-            qreal cardWidth = getLogic()->getCards().at(0)->boundingRect().width();
-            const int xPadding = leftJustified ? cardWidth * 1.4 : 5;
-            qreal totalWidth =
-                leftJustified ? boundingRect().width() - (1 * xPadding) - 5 : boundingRect().width() - 2 * xPadding;
+            const bool leftJustified = SettingsCache::instance().userInterface().getLeftJustified();
+            const qreal cardWidth = getLogic()->getCards().at(0)->boundingRect().width();
+            const qreal availableWidth = boundingRect().width();
+            const qreal xPadding = leftJustified ? cardWidth * 1.4 : 5.0;
+            const qreal totalWidth = qMax(0.0, availableWidth - xPadding - (leftJustified ? 5.0 : xPadding));
 
             if (cardCount == 1) {
-                CardItem *c = getLogic()->getCards().at(0);
-                qreal xPosition = leftJustified ? xPadding : xPadding + (totalWidth - cardWidth) / 2;
-                c->setPos(xPosition, 5);
-                c->setRealZValue(0);
+                CardItem *card = getLogic()->getCards().at(0);
+                card->setHandFanAngle(0.0);
+
+                const qreal xPosition = leftJustified ? xPadding : xPadding + (totalWidth - cardWidth) / 2.0;
+                card->setPos(xPosition, 5);
+                card->setRealZValue(0);
             } else {
-                for (int i = 0; i < cardCount; i++) {
-                    CardItem *c = getLogic()->getCards().at(i);
-                    // If the total width of the cards is smaller than the available width,
-                    // the cards do not need to overlap and are displayed in the center of the area.
-                    if (cardWidth * cardCount > totalWidth) {
-                        c->setPos(xPadding + ((qreal)i) * (totalWidth - cardWidth) / (cardCount - 1), 5);
-                    } else {
-                        qreal xPosition = leftJustified ? xPadding + ((qreal)i) * cardWidth
-                                                        : xPadding + ((qreal)i) * cardWidth +
-                                                              (totalWidth - cardCount * cardWidth) / 2;
-                        c->setPos(xPosition, 5);
-                    }
-                    c->setRealZValue(i);
+                // Keep full spacing while the cards fit; smoothly tighten the fan as the hand grows.
+                const qreal targetSpacing = cardWidth * 0.42;
+                const qreal spacing = cardCount * cardWidth <= totalWidth
+                                          ? qMin(cardWidth, targetSpacing)
+                                          : qMax(cardWidth * 0.18, (totalWidth - cardWidth) / (cardCount - 1));
+
+                const qreal occupiedWidth = cardWidth + spacing * (cardCount - 1);
+                const qreal startX = leftJustified ? xPadding : xPadding + (totalWidth - occupiedWidth) / 2.0;
+
+                for (int i = 0; i < cardCount; ++i) {
+                    CardItem *card = getLogic()->getCards().at(i);
+
+                    const qreal center = (cardCount - 1) / 2.0;
+                    const qreal normalizedPosition = (i - center) / qMax(1.0, center);
+                    const qreal fanAngle = normalizedPosition * 12.0;
+
+                    card->setHandFanAngle(fanAngle);
+                    card->setPos(startX + spacing * i, 5);
+                    card->setRealZValue(i);
                 }
             }
         } else {
+            // No fan rotation in vertical hand mode.
+            for (CardItem *card : getLogic()->getCards()) {
+                card->setHandFanAngle(0.0);
+            }
+
             // No clip container: hand cards should always be visible to the player.
             const auto params = buildStackParams();
             layoutCardsVertically(params);
         }
     }
+
     update();
 }
+
 
 void HandZone::sortHand(const QList<CardList::SortOption> &options)
 {

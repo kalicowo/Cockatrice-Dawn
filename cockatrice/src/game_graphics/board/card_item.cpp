@@ -10,6 +10,7 @@
 #include "../../game/player/player_logic.h"
 #include "../../game/player/player_manager.h"
 #include "../../game/zones/card_zone_logic.h"
+#include "../../game/zones/hand_zone_logic.h"
 #include "../../game/zones/table_zone_logic.h"
 #include "../../game/zones/view_zone_logic.h"
 #include "../card_dimensions.h"
@@ -45,6 +46,7 @@
 #include <libcockatrice/settings/interface_settings.h>
 #include <libcockatrice/utility/card_ref.h>
 #include <qnamespace.h>
+
 
 struct CardRef;
 
@@ -96,8 +98,41 @@ void CardItem::deleteLater()
 
 void CardItem::setZone(CardZoneLogic *_zone)
 {
+    if (state->getZone() != _zone) {
+        setHandFanAngle(0.0);
+    }
+
     state->setZone(_zone);
 }
+
+bool CardItem::shouldHideName() const
+{
+    return dynamic_cast<HandZoneLogic *>(getZone()) != nullptr;
+}
+
+qreal CardItem::selectionScaleMultiplier() const
+{
+    if (isSelected() && dynamic_cast<HandZoneLogic *>(getZone()) != nullptr) {
+        return 1.1;
+    }
+
+    return 1.0;
+}
+
+void CardItem::setHandFanAngle(qreal angle)
+{
+    handFanAngle = angle;
+
+    const qreal totalRotation = tapAngle + handFanAngle;
+
+    setTransform(QTransform()
+                     .translate(CardDimensions::WIDTH_HALF_F, CardDimensions::HEIGHT_HALF_F)
+                     .rotate(totalRotation)
+                     .translate(-CardDimensions::WIDTH_HALF_F, -CardDimensions::HEIGHT_HALF_F));
+
+    update();
+}
+
 
 void CardItem::retranslateUi()
 {
@@ -534,6 +569,7 @@ bool CardItem::doubleClickActsOnSelection() const
 }
 
 
+
 bool CardItem::animationEvent()
 {
     int rotation = ROTATION_DEGREES_PER_FRAME;
@@ -555,9 +591,11 @@ bool CardItem::animationEvent()
         rotationIncomplete = false;
     }
 
+    const qreal totalRotation = tapAngle + handFanAngle;
+
     setTransform(QTransform()
                      .translate(CardDimensions::WIDTH_HALF_F, CardDimensions::HEIGHT_HALF_F)
-                     .rotate(tapAngle)
+                     .rotate(totalRotation)
                      .translate(-CardDimensions::WIDTH_HALF_F, -CardDimensions::HEIGHT_HALF_F));
 
     const bool hoverIncomplete = AbstractCardItem::animationEvent();
@@ -566,6 +604,9 @@ bool CardItem::animationEvent()
 
     return rotationIncomplete || hoverIncomplete;
 }
+
+
+
 
 
 QVariant CardItem::itemChange(GraphicsItemChange change, const QVariant &value)
@@ -580,5 +621,9 @@ QVariant CardItem::itemChange(GraphicsItemChange change, const QVariant &value)
         emit selectionChanged(this, selected);
     }
 
+    if (change == ItemSelectedHasChanged) {
+        updateTargetScale();
+    }
+    
     return AbstractCardItem::itemChange(change, value);
 }

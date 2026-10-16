@@ -34,6 +34,7 @@ class CardItem : public AbstractCardItem
     Q_OBJECT
 private:
     CardState *state;
+    qreal handFanAngle = 0.0;
 
     QPoint gridPoint;
     CardDragItem *dragItem;
@@ -53,6 +54,7 @@ public:
     {
         return Type;
     }
+    bool shouldHideName() const override;
     explicit CardItem(PlayerLogic *_owner,
                       QGraphicsItem *parent = nullptr,
                       const CardRef &cardRef = {},
@@ -69,6 +71,7 @@ public:
         return state->getZone();
     }
     void setZone(CardZoneLogic *_zone);
+    void setHandFanAngle(qreal angle);
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
     [[nodiscard]] QPoint getGridPoint() const
     {
@@ -171,6 +174,7 @@ public:
     static QVariantList parsePT(const QString &pt);
 
 protected:
+    qreal selectionScaleMultiplier() const override;
     void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
