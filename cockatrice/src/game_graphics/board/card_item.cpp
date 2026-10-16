@@ -533,33 +533,40 @@ bool CardItem::doubleClickActsOnSelection() const
     return SettingsCache::instance().userInterface().getDoubleClickToPlay();
 }
 
+
 bool CardItem::animationEvent()
 {
     int rotation = ROTATION_DEGREES_PER_FRAME;
-    bool animationIncomplete = true;
+    bool rotationIncomplete = true;
+
     if (!tapped) {
         rotation *= -1;
     }
 
     tapAngle += rotation;
+
     if (tapped && (tapAngle > 90)) {
         tapAngle = 90;
-        animationIncomplete = false;
+        rotationIncomplete = false;
     }
+
     if (!tapped && (tapAngle < 0)) {
         tapAngle = 0;
-        animationIncomplete = false;
+        rotationIncomplete = false;
     }
 
     setTransform(QTransform()
                      .translate(CardDimensions::WIDTH_HALF_F, CardDimensions::HEIGHT_HALF_F)
                      .rotate(tapAngle)
                      .translate(-CardDimensions::WIDTH_HALF_F, -CardDimensions::HEIGHT_HALF_F));
-    setHovered(false);
+
+    const bool hoverIncomplete = AbstractCardItem::animationEvent();
+
     update();
 
-    return animationIncomplete;
+    return rotationIncomplete || hoverIncomplete;
 }
+
 
 QVariant CardItem::itemChange(GraphicsItemChange change, const QVariant &value)
 {

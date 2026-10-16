@@ -42,7 +42,13 @@ private:
     bool isHovered;
     qreal realZValue;
     bool pendingSelectionCollapse;
-    int selectionCollapseGeneration = 0; ///< Guards the deferred collapse timer against stale firings
+    int selectionCollapseGeneration = 0;
+
+    qreal hoverTargetScale = 1.0;
+
+    static constexpr qreal HOVER_SCALE_IN_SPEED = 0.35;
+    static constexpr qreal HOVER_SCALE_OUT_SPEED = 0.18;
+    static constexpr qreal HOVER_SCALE_EPSILON = 0.001;
 private slots:
     void pixmapUpdated();
 

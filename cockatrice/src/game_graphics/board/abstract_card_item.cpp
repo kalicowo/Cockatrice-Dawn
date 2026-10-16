@@ -250,6 +250,7 @@ void AbstractCardItem::setCardRef(const CardRef &_cardRef)
     refreshCardInfo();
 }
 
+
 void AbstractCardItem::setHovered(bool _hovered)
 {
     if (isHovered == _hovered) {
@@ -259,8 +260,7 @@ void AbstractCardItem::setHovered(bool _hovered)
     if (_hovered) {
         processHoverEvent();
     } else {
-        // Mark the hovered card's current scene footprint dirty so overlapped
-        // sibling zones (e.g. StackZone) repaint after the card moves away.
+        // Refresh the area occupied by the card before it stops being hovered.
         if (scene()) {
             scene()->update(sceneBoundingRect());
         }
@@ -268,10 +268,19 @@ void AbstractCardItem::setHovered(bool _hovered)
 
     isHovered = _hovered;
     setZValue(_hovered ? ZValues::HOVERED_CARD : realZValue);
-    setScale(_hovered && SettingsCache::instance().cardsDisplay().getScaleCards() ? 1.1 : 1);
     setTransformOriginPoint(_hovered ? CardDimensions::WIDTH_HALF_F : 0, _hovered ? CardDimensions::HEIGHT_HALF_F : 0);
+
+    hoverTargetScale = _hovered && SettingsCache::instance().cardsDisplay().getScaleCards() ? 1.2 : 1.0;
+
+    if (scene()) {
+        if (auto *gameScene = dynamic_cast<GameScene *>(scene())) {
+            gameScene->registerAnimationItem(this);
+        }
+    }
+
     update();
 }
+
 
 void AbstractCardItem::setColor(const QString &_color)
 {
@@ -333,10 +342,23 @@ void AbstractCardItem::setTapped(bool _tapped, bool canAnimate)
     }
 }
 
+
 bool AbstractCardItem::animationEvent()
 {
-    return false;
+    const qreal currentScale = scale();
+    const qreal difference = hoverTargetScale - currentScale;
+
+    if (qAbs(difference) < 0.005) {
+        setScale(hoverTargetScale);
+        return false;
+    }
+
+    setScale(currentScale + difference * 0.25);
+    update();
+
+    return true;
 }
+
 
 void AbstractCardItem::setFaceDown(bool _facedown)
 {

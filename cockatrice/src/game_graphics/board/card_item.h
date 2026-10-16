@@ -24,10 +24,10 @@ class PlayerLogic;
 class QColor;
 class CardZoneLogic;
 class QGraphicsItem;
+const int ROTATION_DEGREES_PER_FRAME = 5;
 struct CardRef;
 template <class Key, class T> class QMap;
 
-const int ROTATION_DEGREES_PER_FRAME = 10;
 
 class CardItem : public AbstractCardItem
 {

@@ -575,6 +575,10 @@ target_link_libraries(
          ${COCKATRICE_QT_MODULES}
 )
 
+if(MINGW)
+  target_link_libraries(cockatrice PRIVATE dbghelp)
+endif()
+
 if(UNIX)
   if(APPLE)
     set(MACOSX_BUNDLE_INFO_STRING "${PROJECT_NAME}")
