@@ -87,6 +87,11 @@ public:
     {
         return QMap<QString, bool>();
     }
+    /** @brief True when only challenge-response logins are accepted (strict mode). */
+    virtual bool requiresChallengeResponseAuth() const
+    {
+        return false;
+    }
     void addClient(Server_ProtocolHandler *player);
     void removeClient(Server_ProtocolHandler *player);
     QList<QString> getOnlineModeratorList() const;
@@ -265,7 +270,7 @@ protected slots:
     void externalUserLeft(const QString &userName);
     void externalRoomUserJoined(int roomId, const ServerInfo_User &userInfo);
     void externalRoomUserLeft(int roomId, const QString &userName);
-    void externalRoomSay(int roomId, const QString &userName, const QString &message);
+    void externalRoomSay(int roomId, const QString &userName, const QString &message, const QString &channelId);
     void externalRoomRemoveMessages(int roomId, const QString &userName, int amount);
     void externalRoomGameListChanged(int roomId, const ServerInfo_Game &gameInfo);
     void

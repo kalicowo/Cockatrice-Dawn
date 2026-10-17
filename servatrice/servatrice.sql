@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS `cockatrice_schema_version` (
   PRIMARY KEY  (`version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;
 
-INSERT INTO cockatrice_schema_version VALUES(37);
+INSERT INTO cockatrice_schema_version VALUES(40);
 
 -- users and user data tables
 CREATE TABLE IF NOT EXISTS `cockatrice_users` (
@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS `cockatrice_users` (
   `admin` tinyint(1) NOT NULL,
   `name` varchar(35) NOT NULL,
   `realname` varchar(255) NOT NULL,
-  `password_sha512` char(120) NOT NULL,
+  `password_sha512` varchar(255) NOT NULL,
+  `password_legacy_backup` varchar(255) NOT NULL DEFAULT '',
+  `password_legacy_backup_used_at` datetime DEFAULT NULL,
   `email` varchar(255) NOT NULL,
   `country` char(2) NOT NULL,
   `avatar_bmp` mediumblob NOT NULL,
@@ -155,6 +157,18 @@ CREATE TABLE IF NOT EXISTS `cockatrice_rooms_gametypes` (
   `id_room` int(7) unsigned NOT NULL,
   `name` varchar(50) NOT NULL,
   `id_server` tinyint(3) NOT NULL DEFAULT 1,
+  FOREIGN KEY(`id_room`) REFERENCES `cockatrice_rooms`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `cockatrice_rooms_channels` (
+  `id_room` int(7) unsigned NOT NULL,
+  `id_server` tinyint(3) NOT NULL DEFAULT 1,
+  `channel_id` varchar(50) NOT NULL,
+  `display_name` varchar(50) NOT NULL,
+  `access_level` ENUM('public','registered','judge','moderator','admin','developer') NOT NULL DEFAULT 'public',
+  `write_access_level` ENUM('public','registered','judge','moderator','admin','developer') NULL DEFAULT NULL,
+  `banner_message` varchar(255) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id_room`, `id_server`, `channel_id`),
   FOREIGN KEY(`id_room`) REFERENCES `cockatrice_rooms`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;
 
@@ -329,9 +343,10 @@ CREATE TABLE IF NOT EXISTS `cockatrice_log` (
   `sender_name` varchar(35) NOT NULL,
   `sender_ip` varchar(45) NOT NULL,
   `log_message` text NOT NULL,
-  `target_type` ENUM('room', 'game', 'chat'),
+  `target_type` ENUM('room', 'game', 'chat', 'room_channel'),
   `target_id` int(7) NULL,
   `target_name` varchar(50) NOT NULL,
+  `channel` varchar(50) NULL,
   KEY `sender_name` (`sender_name`),
   KEY `sender_ip` (`sender_ip`),
   KEY `target_id` (`target_id`),

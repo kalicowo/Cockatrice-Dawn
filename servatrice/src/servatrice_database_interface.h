@@ -21,7 +21,7 @@
 
 class QSqlQuery;
 
-#define DATABASE_SCHEMA_VERSION 37
+#define DATABASE_SCHEMA_VERSION 40
 
 class Servatrice;
 
@@ -96,6 +96,18 @@ public:
     bool activeUserExists(const QString &user) override;
     bool userExists(const QString &user) override;
     QString getUserSalt(const QString &user) override;
+    QString getUserPasswordData(const QString &user) override;
+    bool submitPasswordVerifier(const QString &user, const QString &passwordVerifier) override;
+    /** @brief Decrypt the account's legacy password backup when it exists, is decryptable
+     *  with the configured key and has not aged out; purges it when it has. Returns the
+     *  legacy credential in the stored "salt + hash" format, or an empty string. */
+    QString getUsableLegacyBackup(const QString &user);
+    /** @brief Refresh the age window of the account's legacy password backup. */
+    void touchLegacyBackup(const QString &user);
+    /** @brief Drop the account's legacy password backup. */
+    void clearLegacyBackup(const QString &user);
+    /** @brief Drop every legacy password backup that has not been used within the TTL. */
+    void purgeExpiredLegacyBackups();
     int getUserIdInDB(const QString &name);
     QMap<QString, ServerInfo_User> getBuddyList(const QString &name) override;
     QMap<QString, ServerInfo_User> getIgnoreList(const QString &name) override;
@@ -177,7 +189,8 @@ public:
                     const QString &logMessage,
                     LogMessage_TargetType targetType,
                     const int targetId,
-                    const QString &targetName) override;
+                    const QString &targetName,
+                    const QString &channel = QString()) override;
     bool changeUserPassword(const QString &user, const QString &password, bool passwordNeedsHash) override;
     bool changeUserPassword(const QString &user,
                             const QString &oldPassword,
@@ -218,6 +231,7 @@ public:
     };
     UptimeSnapshot getLatestUptimeSnapshot(int serverId);
     bool removeUserAvatar(const QString &userName);
+    bool isCardArtAllowed(const QString &cardName, const QString &cardProviderId) override;
     bool addForgotPassword(const QString &user);
     bool removeForgotPassword(const QString &user) override;
     bool doesForgotPasswordExist(const QString &user);

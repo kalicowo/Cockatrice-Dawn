@@ -45,6 +45,8 @@
 #include <QObject>
 #include <QProcessEnvironment>
 #include <QReadLocker>
+#include <QRegularExpression>
+#include <QSet>
 #include <QSharedPointer>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -65,13 +67,19 @@
 #include <libcockatrice/protocol/pb/event_connection_closed.pb.h>
 #include <libcockatrice/protocol/pb/event_server_message.pb.h>
 #include <libcockatrice/protocol/pb/event_server_shutdown.pb.h>
+#include <libcockatrice/protocol/pb/serverinfo_room_channel.pb.h>
 #include <new>
+#include <optional>
 #include <qlogging.h>
 #include <qnamespace.h>
 #include <server_room.h>
 #include <string>
 
 inline Q_LOGGING_CATEGORY(ServatriceLog, "servatrice");
+
+// Expired legacy password backups are also purged on first use, but idle accounts
+// need this sweep so credentials that are never touched still age out of the database.
+static constexpr qint64 kLegacyBackupSweepIntervalMs = 6 * 60 * 60 * 1000;
 
 Servatrice_GameServer::Servatrice_GameServer(Servatrice *_server,
                                              int _numberPools,
@@ -249,6 +257,37 @@ Servatrice::~Servatrice()
     prepareDestroy();
 }
 
+/**
+ * @brief Maps a configured channel access level (database column or ini value)
+ *        onto the ServerInfo_RoomChannel privilege ladder.
+ *
+ * Returns nullopt for unknown keywords so callers can fail closed instead of
+ * silently downgrading a restricted channel to Public.
+ */
+static std::optional<ServerInfo_RoomChannel::AccessLevel> roomChannelAccessFromKey(const QString &key)
+{
+    const QString level = key.trimmed().toLower();
+    if (level == "developer") {
+        return ServerInfo_RoomChannel::Developer;
+    }
+    if (level == "admin") {
+        return ServerInfo_RoomChannel::Admin;
+    }
+    if (level == "moderator") {
+        return ServerInfo_RoomChannel::Moderator;
+    }
+    if (level == "judge") {
+        return ServerInfo_RoomChannel::Judge;
+    }
+    if (level == "registered") {
+        return ServerInfo_RoomChannel::Registered;
+    }
+    if (level == "public") {
+        return ServerInfo_RoomChannel::Public;
+    }
+    return std::nullopt;
+}
+
 bool Servatrice::initServer()
 {
 
@@ -360,10 +399,65 @@ bool Servatrice::initServer()
             while (query2->next()) {
                 gameTypes.append(query2->value(0).toString());
             }
+
+            QSqlQuery *query3 = servatriceDatabaseInterface->prepareQuery(
+                "select channel_id, display_name, access_level, write_access_level, banner_message from "
+                "{prefix}_rooms_channels where id_room = :id_room "
+                "AND id_server = :id_server order by channel_id asc");
+            query3->bindValue(":id_server", serverId);
+            query3->bindValue(":id_room", query->value(0).toInt());
+            servatriceDatabaseInterface->execSqlQuery(query3);
+            QList<ServerInfo_RoomChannel> channels;
+            QSet<QString> seenChannelIds;
+            while (query3->next()) {
+                const QString channelId = query3->value(0).toString();
+                if (channelId.isEmpty()) {
+                    qWarning() << "Skipping room channel with empty id";
+                    continue;
+                }
+                if (Server_Room::isMainChannel(channelId)) {
+                    qWarning() << "Skipping room channel with reserved id" << channelId;
+                    continue;
+                }
+                if (seenChannelIds.contains(channelId)) {
+                    qWarning() << "Skipping duplicate room channel id" << channelId;
+                    continue;
+                }
+                seenChannelIds.insert(channelId);
+                const QString accessKey = query3->value(2).toString();
+                auto accessLevel =
+                    accessKey.trimmed().isEmpty()
+                        ? std::optional<ServerInfo_RoomChannel::AccessLevel>(ServerInfo_RoomChannel::Public)
+                        : roomChannelAccessFromKey(accessKey);
+                if (!accessLevel.has_value()) {
+                    qWarning() << "Skipping room channel with unknown access level" << accessKey << "for id"
+                               << channelId;
+                    continue;
+                }
+                ServerInfo_RoomChannel channel;
+                channel.set_id(channelId.toStdString());
+                channel.set_display_name(query3->value(1).toString().toStdString());
+                channel.set_access_level(accessLevel.value());
+                if (!query3->isNull(3)) {
+                    const QString writeKey = query3->value(3).toString();
+                    if (!writeKey.trimmed().isEmpty()) {
+                        auto writeLevel = roomChannelAccessFromKey(writeKey);
+                        if (!writeLevel.has_value()) {
+                            qWarning() << "Skipping room channel with unknown write access level" << writeKey
+                                       << "for id" << channelId;
+                            continue;
+                        }
+                        channel.set_write_access_level(writeLevel.value());
+                    }
+                }
+                channel.set_banner_message(query3->value(4).toString().toStdString());
+                channels.append(channel);
+            }
+
             addRoom(new Server_Room(query->value(0).toInt(), query->value(7).toInt(), query->value(1).toString(),
                                     query->value(2).toString(), query->value(3).toString().toLower(),
                                     query->value(4).toString().toLower(), static_cast<bool>(query->value(5).toInt()),
-                                    query->value(6).toString(), gameTypes, this));
+                                    query->value(6).toString(), gameTypes, this, channels));
         }
     } else {
         int size = settingsCache->beginReadArray("rooms/roomlist");
@@ -376,12 +470,61 @@ bool Servatrice::initServer()
                 gameTypes.append(settingsCache->value("name").toString());
             }
             settingsCache->endArray();
+            QList<ServerInfo_RoomChannel> channels;
+            QSet<QString> seenChannelIds;
+            int size3 = settingsCache->beginReadArray("channels");
+            for (int k = 0; k < size3; ++k) {
+                settingsCache->setArrayIndex(k);
+                const QString channelId = settingsCache->value("id").toString();
+                if (channelId.isEmpty()) {
+                    qWarning() << "Skipping room channel with empty id";
+                    continue;
+                }
+                if (Server_Room::isMainChannel(channelId)) {
+                    qWarning() << "Skipping room channel with reserved id" << channelId;
+                    continue;
+                }
+                if (seenChannelIds.contains(channelId)) {
+                    qWarning() << "Skipping duplicate room channel id" << channelId;
+                    continue;
+                }
+                seenChannelIds.insert(channelId);
+                const QString accessKey = settingsCache->value("access").toString();
+                auto accessLevel =
+                    accessKey.trimmed().isEmpty()
+                        ? std::optional<ServerInfo_RoomChannel::AccessLevel>(ServerInfo_RoomChannel::Public)
+                        : roomChannelAccessFromKey(accessKey);
+                if (!accessLevel.has_value()) {
+                    qWarning() << "Skipping room channel with unknown access level" << accessKey << "for id"
+                               << channelId;
+                    continue;
+                }
+                ServerInfo_RoomChannel channel;
+                channel.set_id(channelId.toStdString());
+                channel.set_display_name(settingsCache->value("displayname").toString().toStdString());
+                channel.set_access_level(accessLevel.value());
+                if (settingsCache->contains("writeaccess")) {
+                    const QString writeKey = settingsCache->value("writeaccess").toString();
+                    if (!writeKey.trimmed().isEmpty()) {
+                        auto writeLevel = roomChannelAccessFromKey(writeKey);
+                        if (!writeLevel.has_value()) {
+                            qWarning() << "Skipping room channel with unknown write access level" << writeKey
+                                       << "for id" << channelId;
+                            continue;
+                        }
+                        channel.set_write_access_level(writeLevel.value());
+                    }
+                }
+                channel.set_banner_message(settingsCache->value("banner").toString().toStdString());
+                channels.append(channel);
+            }
+            settingsCache->endArray();
             Server_Room *newRoom = new Server_Room(
                 i, settingsCache->value("chathistorysize").toInt(), settingsCache->value("name").toString(),
                 settingsCache->value("description").toString(),
                 settingsCache->value("permissionlevel").toString().toLower(),
                 settingsCache->value("privilegelevel").toString().toLower(), settingsCache->value("autojoin").toBool(),
-                settingsCache->value("joinmessage").toString(), gameTypes, this);
+                settingsCache->value("joinmessage").toString(), gameTypes, this, channels);
             addRoom(newRoom);
         }
 
@@ -474,6 +617,10 @@ bool Servatrice::initServer()
         qDebug() << "Starting deck share cleanup clock, interval" << deckShareCleanupInterval << "ms";
         deckShareCleanupClock->start(deckShareCleanupInterval);
     }
+
+    legacyBackupSweepClock = new QTimer(this);
+    connect(legacyBackupSweepClock, &QTimer::timeout, this, &Servatrice::sweepLegacyBackups);
+    legacyBackupSweepClock->start(kLegacyBackupSweepIntervalMs);
 
     // SOCKET SERVER
     if (getNumberOfTCPPools() > 0) {
@@ -864,6 +1011,14 @@ SessionEvent *Servatrice::getLoginSessionEvent() const
     return nullptr;
 }
 
+void Servatrice::sweepLegacyBackups()
+{
+    if (!servatriceDatabaseInterface->checkSql()) {
+        return;
+    }
+    servatriceDatabaseInterface->purgeExpiredLegacyBackups();
+}
+
 void Servatrice::scheduleShutdown(const QString &reason, int minutes)
 {
     shutdownStateMutex.lock();
@@ -940,8 +1095,8 @@ void Servatrice::addIslInterface(int _serverId, IslInterface *interface)
     connect(interface, SIGNAL(externalRoomUserJoined(int, ServerInfo_User)), this,
             SLOT(externalRoomUserJoined(int, ServerInfo_User)));
     connect(interface, SIGNAL(externalRoomUserLeft(int, QString)), this, SLOT(externalRoomUserLeft(int, QString)));
-    connect(interface, SIGNAL(externalRoomSay(int, QString, QString)), this,
-            SLOT(externalRoomSay(int, QString, QString)));
+    connect(interface, SIGNAL(externalRoomSay(int, QString, QString, QString)), this,
+            SLOT(externalRoomSay(int, QString, QString, QString)));
     connect(interface, SIGNAL(externalRoomRemoveMessages(int, QString, int)), this,
             SLOT(externalRoomRemoveMessages(int, QString, int)));
     connect(interface, SIGNAL(externalRoomGameListChanged(int, ServerInfo_Game)), this,
@@ -1054,6 +1209,42 @@ bool Servatrice::getRequireEmailActivationEnabled() const
 QString Servatrice::getRequiredFeatures() const
 {
     return settingsCache->value("server/requiredfeatures", "").toString();
+}
+
+Servatrice::AuthenticationStrictness Servatrice::getAuthenticationStrictness() const
+{
+    const QString strictness = settingsCache->value("security/authentication_strictness", "mixed").toString();
+    if (strictness == "strict") {
+        return AuthenticationStrict;
+    }
+    if (strictness == "legacy") {
+        return AuthenticationLegacy;
+    }
+    return AuthenticationMixed;
+}
+
+QByteArray Servatrice::getLegacyBackupKey() const
+{
+    const QString keyHex = settingsCache->value("security/legacy_backup_key").toString().trimmed();
+    if (keyHex.isEmpty()) {
+        return {};
+    }
+    static const QRegularExpression validHexKey(QStringLiteral("^[0-9a-fA-F]{64}$"));
+    if (!validHexKey.match(keyHex).hasMatch()) {
+        qDebug() << "security/legacy_backup_key is not 64 hex characters;" << "legacy password backups are disabled";
+        return {};
+    }
+    return QByteArray::fromHex(keyHex.toUtf8());
+}
+
+int Servatrice::getLegacyBackupTtlDays() const
+{
+    bool ok = false;
+    const int days = settingsCache->value("security/legacy_backup_ttl_days", 180).toInt(&ok);
+    if (!ok || days < 1 || days > 3650) {
+        return 180;
+    }
+    return days;
 }
 
 QString Servatrice::getDBTypeString() const

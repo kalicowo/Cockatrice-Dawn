@@ -4,6 +4,8 @@
 #include "server.h"
 #include "server_abstractuserinterface.h"
 
+#include <QByteArray>
+#include <QDateTime>
 #include <QList>
 #include <QMap>
 #include <QObject>
@@ -30,6 +32,7 @@ class Command_ListRooms;
 class Command_JoinRoom;
 class Command_LeaveRoom;
 class Command_RoomSay;
+class Command_RoomChannelSay;
 class Command_CreateGame;
 class Command_JoinGame;
 
@@ -46,6 +49,9 @@ protected:
     bool acceptsUserListChanges;
     bool acceptsRoomListChanges;
     bool idleClientWarningSent;
+    QByteArray authNonce;
+    QString authNonceUser;
+    QDateTime authNonceCreated;
     virtual void logDebugMessage(const QString & /* message */)
     {
     }
@@ -66,6 +72,8 @@ private:
     Response::ResponseCode cmdListUsers(const Command_ListUsers &cmd, ResponseContainer &rc);
     Response::ResponseCode cmdLeaveRoom(const Command_LeaveRoom &cmd, Server_Room *room, ResponseContainer &rc);
     Response::ResponseCode cmdRoomSay(const Command_RoomSay &cmd, Server_Room *room, ResponseContainer &rc);
+    Response::ResponseCode
+    cmdRoomChannelSay(const Command_RoomChannelSay &cmd, Server_Room *room, ResponseContainer &rc);
     Response::ResponseCode cmdCreateGame(const Command_CreateGame &cmd, Server_Room *room, ResponseContainer &rc);
     Response::ResponseCode cmdJoinGame(const Command_JoinGame &cmd, Server_Room *room, ResponseContainer &rc);
 
@@ -120,6 +128,13 @@ public:
     {
         return databaseInterface;
     }
+
+    /** @brief Store a fresh challenge nonce bound to @p userName for the next challenge-response login attempt. */
+    void setAuthNonce(const QByteArray &nonce, const QString &userName);
+    /** @brief True if nonce matches the pending one, was issued for @p userName, and is less than 60 seconds old. */
+    bool isAuthNonceValid(const QByteArray &nonce, const QString &userName) const;
+    /** @brief Invalidate the pending nonce (single-use). */
+    void clearAuthNonce();
 
     int getLastCommandTime() const
     {

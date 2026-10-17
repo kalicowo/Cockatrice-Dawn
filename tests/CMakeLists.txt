@@ -174,6 +174,7 @@ endfunction()
 cockatrice_add_test(NAME expression_test SOURCES expression_test.cpp LIBS libcockatrice_utility)
 cockatrice_add_test(NAME clamped_arithmetic_test SOURCES clamped_arithmetic_test.cpp LIBS libcockatrice_utility)
 cockatrice_add_test(NAME test_age_formatting SOURCES test_age_formatting.cpp LIBS libcockatrice_utility)
+cockatrice_add_test(NAME user_data_backup_test SOURCES user_data_backup_test.cpp LIBS libcockatrice_utility)
 cockatrice_add_test(NAME password_hash_test SOURCES password_hash_test.cpp LIBS libcockatrice_utility)
 cockatrice_add_test(NAME report_categories_test SOURCES report_categories_test.cpp LIBS libcockatrice_utility)
 cockatrice_add_test(NAME warning_categories_test SOURCES warning_categories_test.cpp LIBS libcockatrice_utility)
@@ -267,6 +268,17 @@ cockatrice_add_test(
   server_game_join_test
   SOURCES
   server_game_join_test.cpp
+  LIBS
+  libcockatrice_network_server_remote
+  libcockatrice_rng
+  LABELS
+  server
+)
+cockatrice_add_test(
+  NAME
+  server_room_channels_test
+  SOURCES
+  server_room_channels_test.cpp
   LIBS
   libcockatrice_network_server_remote
   libcockatrice_rng
