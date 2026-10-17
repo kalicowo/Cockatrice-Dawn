@@ -254,7 +254,7 @@ void AbstractCardItem::setCardRef(const CardRef &_cardRef)
 void AbstractCardItem::updateTargetScale()
 {
     const bool enlargeCard = isHovered && SettingsCache::instance().cardsDisplay().getScaleCards();
-    hoverTargetScale = (enlargeCard ? 1.2 : 1.0) * selectionScaleMultiplier();
+    hoverTargetScale = (enlargeCard ? 1.25 : 1.0) * selectionScaleMultiplier();
 
     if (scene()) {
         if (auto *gameScene = dynamic_cast<GameScene *>(scene())) {

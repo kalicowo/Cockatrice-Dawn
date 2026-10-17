@@ -127,6 +127,7 @@ void HandZone::reorganizeCards()
 
                     card->setHandFanAngle(fanAngle);
                     card->setPos(startX + spacing * i, 5);
+                    card->setHandBaseY(5);
                     card->setRealZValue(i);
                 }
             }

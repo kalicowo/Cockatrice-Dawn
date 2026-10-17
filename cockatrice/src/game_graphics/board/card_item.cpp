@@ -10,6 +10,7 @@
 #include "../../game/player/player_logic.h"
 #include "../../game/player/player_manager.h"
 #include "../../game/zones/card_zone_logic.h"
+#include <libcockatrice/utility/zone_names.h>
 #include "../../game/zones/hand_zone_logic.h"
 #include "../../game/zones/table_zone_logic.h"
 #include "../../game/zones/view_zone_logic.h"
@@ -46,6 +47,7 @@
 #include <libcockatrice/settings/interface_settings.h>
 #include <libcockatrice/utility/card_ref.h>
 #include <qnamespace.h>
+#include <QtMath>
 
 
 struct CardRef;
@@ -58,6 +60,7 @@ CardItem::CardItem(PlayerLogic *_owner,
     : AbstractCardItem(parent, cardRef, _owner, _cardid), state(new CardState(this, _zone)), dragItem(nullptr)
 {
     owner->addCard(this);
+    handFloatPhase = (id * 1.61803398875) * 0.7;
 
     connect(&SettingsCache::instance().cardCounters(), &CardCounterSettings::colorChanged, this, [this](int counterId) {
         if (state->getCounters().contains(counterId)) {
@@ -100,6 +103,13 @@ void CardItem::setZone(CardZoneLogic *_zone)
 {
     if (state->getZone() != _zone) {
         setHandFanAngle(0.0);
+
+        if (state->getZone() != nullptr &&
+            state->getZone()->getName() == ZoneNames::HAND &&
+            (_zone == nullptr || _zone->getName() != ZoneNames::HAND)) {
+            setHandFloatOffset(0.0);
+            handBaseY = y();
+        }
     }
 
     state->setZone(_zone);
@@ -133,6 +143,26 @@ void CardItem::setHandFanAngle(qreal angle)
     update();
 }
 
+void CardItem::setHandFloatOffset(qreal offset)
+{
+    handFloatOffset = offset;
+    setY(handBaseY + handFloatOffset);
+    update();
+}
+
+void CardItem::setHandBaseY(qreal y)
+{
+    handBaseY = y;
+    setY(handBaseY + handFloatOffset);
+
+    if (scene()) {
+        if (auto *gameScene = dynamic_cast<GameScene *>(scene())) {
+            gameScene->registerAnimationItem(this);
+        }
+    }
+
+    update();
+}
 
 void CardItem::retranslateUi()
 {
@@ -600,9 +630,22 @@ bool CardItem::animationEvent()
 
     const bool hoverIncomplete = AbstractCardItem::animationEvent();
 
-    update();
+const bool inHorizontalHand =
+    getZone() != nullptr &&
+    getZone()->getName() == ZoneNames::HAND &&
+    SettingsCache::instance().userInterface().getHorizontalHand();
 
-    return rotationIncomplete || hoverIncomplete;
+if (inHorizontalHand) {
+    const qreal floatOffset = qSin(handFloatPhase) * 2.0;
+    setHandFloatOffset(floatOffset);
+    handFloatPhase += 0.014;
+} else if (handFloatOffset != 0.0) {
+    setHandFloatOffset(0.0);
+}
+
+update();
+
+return rotationIncomplete || hoverIncomplete || inHorizontalHand;
 }
 
 

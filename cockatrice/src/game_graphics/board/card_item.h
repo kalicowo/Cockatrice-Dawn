@@ -35,6 +35,9 @@ class CardItem : public AbstractCardItem
 private:
     CardState *state;
     qreal handFanAngle = 0.0;
+    qreal handFloatPhase = 0.0;
+    qreal handFloatOffset = 0.0;
+    qreal handBaseY = 0.0;
 
     QPoint gridPoint;
     CardDragItem *dragItem;
@@ -72,6 +75,8 @@ public:
     }
     void setZone(CardZoneLogic *_zone);
     void setHandFanAngle(qreal angle);
+    void setHandFloatOffset(qreal offset);
+    void setHandBaseY(qreal y);
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
     [[nodiscard]] QPoint getGridPoint() const
     {
