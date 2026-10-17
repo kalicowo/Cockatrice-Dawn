@@ -8,6 +8,7 @@
 
 #include <QBrush>
 #include <QColor>
+#include <QConicalGradient>
 #include <QCursor>
 #include <QGraphicsItem>
 #include <QGraphicsScene>
@@ -15,11 +16,44 @@
 #include <QList>
 #include <QObject>
 #include <QPainter>
+#include <QPainterPath>
+#include <QPen>
 #include <QPoint>
 #include <QSharedPointer>
+#include <QVariantAnimation>
+#include <QtMath>
+#include <libcockatrice/card/game_specific_terms.h>
 #include <qnamespace.h>
 
 class CardZoneLogic;
+
+namespace
+{
+constexpr qreal DRAG_HALO_RADIUS = 8.0;
+constexpr int DRAG_HALO_BREATH_DURATION_MS = 2400;
+
+QList<QColor> dragHaloColors(const AbstractCardItem *item, bool forceFaceDown)
+{
+    QList<QColor> colors;
+    const auto card = item->getCard();
+    // Never infer hidden information from the card name or mana cost.
+    if (!forceFaceDown && !item->getFaceDown() && card) {
+        const QString identity = card.getInfo().getProperty(Mtg::ColorIdentity).toUpper();
+        const QString symbols = QStringLiteral("WUBRG");
+        const QList<QColor> palette = {QColor(255, 239, 183), QColor(70, 165, 255), QColor(174, 112, 218),
+                                       QColor(255, 91, 62), QColor(78, 214, 128)};
+        for (int i = 0; i < symbols.size(); ++i) {
+            if (identity.contains(symbols.at(i))) {
+                colors.append(palette.at(i));
+            }
+        }
+    }
+    if (colors.isEmpty()) {
+        colors.append(QColor(200, 215, 230));
+    }
+    return colors;
+}
+} // namespace
 
 CardDragItem::CardDragItem(CardItem *_item,
                            int _id,
@@ -29,10 +63,51 @@ CardDragItem::CardDragItem(CardItem *_item,
     : AbstractCardDragItem(_item, _hotSpot, parentDrag), id(_id), forceFaceDown(_forceFaceDown), occupied(false),
       currentZone(0)
 {
+    auto *breathing = new QVariantAnimation(this);
+    breathing->setDuration(DRAG_HALO_BREATH_DURATION_MS);
+    breathing->setStartValue(0.0);
+    breathing->setEndValue(2.0 * M_PI);
+    breathing->setLoopCount(-1);
+    connect(breathing, &QVariantAnimation::valueChanged, this, [this](const QVariant &phase) {
+        // A cosine keeps both the brightness and its slope continuous at the loop boundary.
+        haloIntensity = 0.75 + 0.25 * qCos(phase.toReal());
+        update();
+    });
+    breathing->start();
+}
+
+QRectF CardDragItem::boundingRect() const
+{
+    return AbstractCardDragItem::boundingRect().adjusted(-DRAG_HALO_RADIUS, -DRAG_HALO_RADIUS, DRAG_HALO_RADIUS,
+                                                         DRAG_HALO_RADIUS);
+}
+
+QPainterPath CardDragItem::shape() const
+{
+    // The halo must not enlarge the interactive area or the ghost mask.
+    return item->shape();
 }
 
 void CardDragItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    const auto colors = dragHaloColors(item, forceFaceDown);
+    const QPainterPath outline = shape();
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing);
+    painter->setBrush(Qt::NoBrush);
+    // Translucent strokes build a soft halo without a blur effect or extra scene items.
+    for (int layer = 8; layer >= 1; --layer) {
+        QConicalGradient gradient(AbstractCardDragItem::boundingRect().center(), 90.0);
+        for (int i = 0; i <= colors.size(); ++i) {
+            QColor color = colors.at(i % colors.size());
+            color.setAlpha(qRound((12 + (8 - layer) * 5) * haloIntensity));
+            gradient.setColorAt(qreal(i) / colors.size(), color);
+        }
+        painter->setPen(QPen(QBrush(gradient), layer * 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter->drawPath(outline);
+    }
+    painter->restore();
+
     AbstractCardDragItem::paint(painter, option, widget);
 
     if (occupied) {

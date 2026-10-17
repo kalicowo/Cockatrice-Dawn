@@ -23,6 +23,7 @@ private:
     bool forceFaceDown;
     bool occupied;
     CardZone *currentZone;
+    qreal haloIntensity = 1.0;
 
 public:
     CardDragItem(CardItem *_item,
@@ -38,6 +39,8 @@ public:
     {
         return forceFaceDown;
     }
+    QRectF boundingRect() const override;
+    QPainterPath shape() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
     void updatePosition(const QPointF &cursorScenePos) override;
 
