@@ -92,13 +92,7 @@ void CardDragItem::updatePosition(const QPointF &cursorScenePos)
     // For other zones (where we do display the card under the cursor), we use
     // the hotspot to feel like the card was dragged at the corresponding
     // position.
-    TableZone *tableZone = qobject_cast<TableZone *>(cursorZone);
-    QPointF closestGridPoint;
-    if (tableZone) {
-        closestGridPoint = tableZone->closestGridPoint(cursorPosInZone);
-    } else {
-        closestGridPoint = cursorPosInZone - hotSpot;
-    }
+    QPointF closestGridPoint = cursorPosInZone - hotSpot;
 
     QPointF newPos = zonePos + closestGridPoint;
 
