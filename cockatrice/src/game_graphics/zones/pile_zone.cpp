@@ -67,9 +67,13 @@ void PileZone::paint(QPainter *painter, const QStyleOptionGraphicsItem * /*optio
 {
     painter->drawPath(shape());
 
-    if (!getLogic()->getCards().isEmpty()) {
-        getLogic()->getCards().at(0)->paintPicture(painter, getLogic()->getCards().at(0)->getTranslatedSize(painter),
-                                                   90);
+    // In-flight cards are already in the logical pile. Show the previous top
+    // until their transfer completes instead of duplicating the animated picture.
+    for (auto *card : getLogic()->getCards()) {
+        if (card->opacity() > 0.0) {
+            card->paintPicture(painter, card->getTranslatedSize(painter), 90);
+            break;
+        }
     }
 
     painter->translate(CardDimensions::WIDTH_HALF_F, CardDimensions::HEIGHT_HALF_F);

@@ -120,12 +120,25 @@ bool ServersSettings::getSavePassword() const
 void ServersSettings::setAutoConnect(int autoconnect)
 {
     setValue(autoconnect, "autoConnect");
+    // Distinguish an explicit choice from the legacy default of zero.
+    setValue(autoconnect > 0, "autoConnectSavedCredentials");
 }
 
 int ServersSettings::getAutoConnect() const
 {
-    QVariant autoconnect = getValue("autoConnect");
-    return autoconnect == QVariant() ? 0 : autoconnect.toInt();
+    const int index = getPrevioushostindex(getPrevioushostName());
+    if (index < 0 || !getSavePassword() || getHostname(QString()).trimmed().isEmpty() ||
+        getPlayerName().trimmed().isEmpty()) {
+        return 0;
+    }
+    bool validPort = false;
+    const uint port = getPort(QString()).toUInt(&validPort);
+    const QString credential = getValue(QString("password%1").arg(index), "server", "server_details").toString();
+    if (!validPort || port == 0 || port > 65535 || credential.isEmpty()) {
+        return 0;
+    }
+    const QVariant preference = getValue("autoConnectSavedCredentials");
+    return !preference.isValid() || preference.toBool() ? 1 : 0;
 }
 
 void ServersSettings::setFPHostName(QString hostname)

@@ -14,11 +14,13 @@
 #include <QList>
 #include <QPoint>
 #include <QPointF>
+#include <QPointer>
 #include <QString>
 #include <QVariantList>
 #include <qtmetamacros.h>
 
 class CardDragItem;
+class CardPlacementEffect;
 class ServerInfo_Card;
 class PlayerLogic;
 class QColor;
@@ -41,6 +43,7 @@ private:
 
     QPoint gridPoint;
     CardDragItem *dragItem;
+    QPointer<CardPlacementEffect> placementEffect;
     QList<CardItem *> attachedCards;
 
     void prepareDelete();
@@ -154,6 +157,8 @@ public:
     bool animationEvent() override;
     CardDragItem *createDragItem(int _id, const QPointF &_pos, const QPointF &_scenePos, bool forceFaceDown);
     void deleteDragItem();
+    void cancelPlacementAnimation();
+    void animatePlacement();
     void drawArrow(const QColor &arrowColor);
     void drawAttachArrow();
     void playCard(bool faceDown);

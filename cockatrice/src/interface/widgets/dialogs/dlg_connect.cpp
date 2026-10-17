@@ -95,7 +95,6 @@ DlgConnect::DlgConnect(QWidget *parent) : QDialog(parent)
         autoConnectCheckBox->setChecked(servers.getAutoConnect() > 0);
         autoConnectCheckBox->setEnabled(true);
     } else {
-        servers.setAutoConnect(0);
         autoConnectCheckBox->setChecked(false);
         autoConnectCheckBox->setEnabled(false);
     }

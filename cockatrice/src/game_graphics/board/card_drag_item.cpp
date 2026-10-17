@@ -4,6 +4,7 @@
 #include "../zones/card_zone.h"
 #include "../zones/table_zone.h"
 #include "../zones/view_zone.h"
+#include "card_halo.h"
 #include "card_item.h"
 
 #include <QBrush>
@@ -29,29 +30,14 @@ class CardZoneLogic;
 
 namespace
 {
-constexpr qreal DRAG_HALO_RADIUS = 8.0;
 constexpr int DRAG_HALO_BREATH_DURATION_MS = 2400;
 
 QList<QColor> dragHaloColors(const AbstractCardItem *item, bool forceFaceDown)
 {
-    QList<QColor> colors;
     const auto card = item->getCard();
     // Never infer hidden information from the card name or mana cost.
-    if (!forceFaceDown && !item->getFaceDown() && card) {
-        const QString identity = card.getInfo().getProperty(Mtg::ColorIdentity).toUpper();
-        const QString symbols = QStringLiteral("WUBRG");
-        const QList<QColor> palette = {QColor(255, 239, 183), QColor(70, 165, 255), QColor(174, 112, 218),
-                                       QColor(255, 91, 62), QColor(78, 214, 128)};
-        for (int i = 0; i < symbols.size(); ++i) {
-            if (identity.contains(symbols.at(i))) {
-                colors.append(palette.at(i));
-            }
-        }
-    }
-    if (colors.isEmpty()) {
-        colors.append(QColor(200, 215, 230));
-    }
-    return colors;
+    return CardHalo::colorsForIdentity(card.getInfo().getProperty(Mtg::ColorIdentity),
+                                       forceFaceDown || item->getFaceDown() || !card);
 }
 } // namespace
 
@@ -78,8 +64,8 @@ CardDragItem::CardDragItem(CardItem *_item,
 
 QRectF CardDragItem::boundingRect() const
 {
-    return AbstractCardDragItem::boundingRect().adjusted(-DRAG_HALO_RADIUS, -DRAG_HALO_RADIUS, DRAG_HALO_RADIUS,
-                                                         DRAG_HALO_RADIUS);
+    return AbstractCardDragItem::boundingRect().adjusted(-CardHalo::RADIUS, -CardHalo::RADIUS, CardHalo::RADIUS,
+                                                         CardHalo::RADIUS);
 }
 
 QPainterPath CardDragItem::shape() const
@@ -90,23 +76,7 @@ QPainterPath CardDragItem::shape() const
 
 void CardDragItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
-    const auto colors = dragHaloColors(item, forceFaceDown);
-    const QPainterPath outline = shape();
-    painter->save();
-    painter->setRenderHint(QPainter::Antialiasing);
-    painter->setBrush(Qt::NoBrush);
-    // Translucent strokes build a soft halo without a blur effect or extra scene items.
-    for (int layer = 8; layer >= 1; --layer) {
-        QConicalGradient gradient(AbstractCardDragItem::boundingRect().center(), 90.0);
-        for (int i = 0; i <= colors.size(); ++i) {
-            QColor color = colors.at(i % colors.size());
-            color.setAlpha(qRound((12 + (8 - layer) * 5) * haloIntensity));
-            gradient.setColorAt(qreal(i) / colors.size(), color);
-        }
-        painter->setPen(QPen(QBrush(gradient), layer * 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        painter->drawPath(outline);
-    }
-    painter->restore();
+    CardHalo::paint(painter, shape(), dragHaloColors(item, forceFaceDown), haloIntensity);
 
     AbstractCardDragItem::paint(painter, option, widget);
 
@@ -212,8 +182,12 @@ void CardDragItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
                 !c->occupied) {
                 dragItemList.append(c);
             }
-            sc->removeItem(c);
         }
+    }
+
+    // Clean up the entire preview even when an attached card cannot be dropped here.
+    for (auto *child : childDrags) {
+        sc->removeItem(child);
     }
 
     if (currentZone) {

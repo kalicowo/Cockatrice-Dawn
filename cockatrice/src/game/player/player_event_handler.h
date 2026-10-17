@@ -180,7 +180,8 @@ public:
      * - Emits appropriate move or undo-draw logs
      * - Inserts the card into the target zone
      */
-    void eventMoveCard(const Event_MoveCard &event, const GameEventContext &context);
+    void
+    eventMoveCard(const Event_MoveCard &event, const GameEventContext &context, EventProcessingOptions options = {});
 
     /// Flip a card face up or face down.
     void eventFlipCard(const Event_FlipCard &event);
@@ -198,7 +199,7 @@ public:
      */
 
     /// Draw one or more cards from the deck.
-    void eventDrawCards(const Event_DrawCards &event);
+    void eventDrawCards(const Event_DrawCards &event, EventProcessingOptions options = {});
 
     /**
      * @brief Reveal cards from a zone.

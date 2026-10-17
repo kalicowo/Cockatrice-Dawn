@@ -1,6 +1,11 @@
 #include "player_event_handler.h"
+#include "../../client/settings/cache_settings.h"
+#include <libcockatrice/settings/cards_display_settings.h>
 
 #include "../../game_graphics/board/card_item.h"
+#include "../../game_graphics/board/card_draw_animation.h"
+#include <libcockatrice/card/game_specific_terms.h>
+#include "../../interface/card_picture_loader/card_picture_loader.h"
 #include "../../game_graphics/zones/view_zone.h"
 #include "../abstract_game.h"
 #include "../board/arrow_data.h"
@@ -310,7 +315,9 @@ void PlayerEventHandler::eventDumpZone(const Event_DumpZone &event)
     emit logDumpZone(player, zone, event.number_cards(), event.is_reversed());
 }
 
-void PlayerEventHandler::eventMoveCard(const Event_MoveCard &event, const GameEventContext &context)
+void PlayerEventHandler::eventMoveCard(const Event_MoveCard &event,
+                                       const GameEventContext &context,
+                                       EventProcessingOptions options)
 {
     PlayerLogic *startPlayer = player->getGame()->getPlayerManager()->getPlayers().value(event.start_player_id());
     if (!startPlayer) {
@@ -341,10 +348,35 @@ void PlayerEventHandler::eventMoveCard(const Event_MoveCard &event, const GameEv
     if (x == -1) {
         x = 0;
     }
+    const bool transferToPile =
+        (startZone->getName() == ZoneNames::TABLE || startZone->getName() == ZoneNames::DECK ||
+         startZone->getName() == ZoneNames::HAND) &&
+        (targetZone->getName() == ZoneNames::GRAVE || targetZone->getName() == ZoneNames::EXILE) &&
+        !options.testFlag(SKIP_TAP_ANIMATION);
+    const CardItem *sourceCard = transferToPile ? startZone->getCards().findCard(event.card_id()) : nullptr;
+    if (transferToPile && !startZone->getCards().isEmpty() &&
+        (startZone->getName() == ZoneNames::DECK || (!sourceCard && startZone->getName() == ZoneNames::HAND))) {
+        // Hidden libraries and hands can use positional identifiers rather than public card ids.
+        const int sourcePosition = position >= 0 && position < startZone->getCards().size() ? position : 0;
+        sourceCard = startZone->getCards().at(sourcePosition);
+    }
+    QPointF sourceCenter;
+    qreal sourceScale = 1.0;
+    qreal sourceAngle = 0.0;
+    bool sourceFaceUp = false;
+    if (sourceCard) {
+        sourceCenter = sourceCard->mapToScene(sourceCard->boundingRect().center());
+        const auto transform = sourceCard->sceneTransform();
+        sourceScale = qSqrt(transform.m11() * transform.m11() + transform.m12() * transform.m12());
+        sourceAngle = qRadiansToDegrees(qAtan2(transform.m12(), transform.m11()));
+        sourceFaceUp = startZone->getName() != ZoneNames::DECK && !sourceCard->getFaceDown() &&
+                       !sourceCard->getName().isEmpty();
+    }
     CardItem *card = startZone->takeCard(position, event.card_id(), startZone != targetZone);
     if (card == nullptr) {
         return;
     }
+    card->cancelPlacementAnimation();
     if (startZone != targetZone) {
         card->deleteCardInfoPopup();
     }
@@ -388,6 +420,52 @@ void PlayerEventHandler::eventMoveCard(const Event_MoveCard &event, const GameEv
     }
 
     targetZone->addCard(card, true, x, y);
+
+    if (transferToPile && sourceCard && card->scene()) {
+        const QPointer<CardItem> guardedCard(card);
+        const QPointer<CardZoneLogic> destination(targetZone);
+        const QPointer<QGraphicsScene> expectedScene(card->scene());
+        const QPointer<QGraphicsObject> pile(card->parentItem() ? card->parentItem()->toGraphicsObject() : nullptr);
+        CardDrawAnimation::Request request;
+        request.card = card;
+        request.libraryCenter = sourceCenter;
+        request.libraryScale = sourceScale;
+        request.sourceAngle = sourceAngle;
+        request.roundCorners = SettingsCache::instance().cardsDisplay().getRoundCardCorners();
+        request.name = card->getName();
+        request.directToHand = true; // Reuse the short flight, without a reading pause.
+        request.startsFaceUp = sourceFaceUp && !card->getFaceDown();
+        request.endsFaceUp = !card->getFaceDown() && !card->getName().isEmpty();
+        request.mayReveal = [guardedCard, destination, expectedScene]() {
+            return guardedCard && destination && expectedScene && guardedCard->getZone() == destination &&
+                   guardedCard->scene() == expectedScene;
+        };
+        request.isFaceVisible = [guardedCard]() {
+            return guardedCard && !guardedCard->getFaceDown() && !guardedCard->getName().isEmpty();
+        };
+        request.picture = [guardedCard](bool faceUp) {
+            QPixmap image;
+            const QSize size(CardDimensions::WIDTH * 6, CardDimensions::HEIGHT * 6);
+            if (faceUp && guardedCard) {
+                CardPictureLoader::getPixmap(image, guardedCard->getCard(), size);
+            } else {
+                CardPictureLoader::getCardBackPixmap(image, size);
+            }
+            return image;
+        };
+        request.refreshDestination = [pile]() {
+            if (pile) {
+                pile->update();
+            }
+        };
+        CardDrawAnimation::enqueue(card->scene(), std::move(request));
+    }
+
+    // Animate only after the authoritative identity, visibility and layout are applied.
+    // Replay seeking suppresses animations using the existing processing option.
+    if (!options.testFlag(SKIP_TAP_ANIMATION) && targetZone->getName() == ZoneNames::TABLE) {
+        card->animatePlacement();
+    }
 
     emit cardZoneChanged(card, startZone == targetZone);
     emit requestCardMenuUpdate(card);
@@ -489,20 +567,37 @@ void PlayerEventHandler::eventAttachCard(const Event_AttachCard &event)
     emit requestCardMenuUpdate(startCard);
 }
 
-void PlayerEventHandler::eventDrawCards(const Event_DrawCards &event)
+void PlayerEventHandler::eventDrawCards(const Event_DrawCards &event, EventProcessingOptions options)
 {
     CardZoneLogic *_deck = player->getDeckZone();
     CardZoneLogic *_hand = player->getHandZone();
+    QList<CardItem *> drawnCards;
+    const bool animate = player->getPlayerInfo()->getLocal() && !player->getGame()->getPlayerManager()->isSpectator() &&
+                         !options.testFlag(SKIP_TAP_ANIMATION);
+    QPointF libraryCenter;
+    qreal libraryScale = 1.0;
+    if (!_deck->getCards().isEmpty()) {
+        const auto *top = _deck->getCards().first();
+        libraryCenter = top->mapToScene(top->boundingRect().center());
+        const auto transform = top->sceneTransform();
+        libraryScale = qSqrt(transform.m11() * transform.m11() + transform.m12() * transform.m12());
+    }
 
     const int listSize = event.cards_size();
     if (listSize) {
         for (int i = 0; i < listSize; ++i) {
             const ServerInfo_Card &cardInfo = event.cards(i);
             CardItem *card = _deck->takeCard(0, cardInfo.id());
+            if (!card) {
+                continue;
+            }
             QString cardName = QString::fromStdString(cardInfo.name());
             QString providerId = QString::fromStdString(cardInfo.provider_id());
             card->setCardRef({cardName, providerId});
             _hand->addCard(card, false, -1);
+            if (animate && !cardName.isEmpty()) {
+                drawnCards.append(card);
+            }
         }
     } else {
         const int number = event.number();
@@ -513,6 +608,42 @@ void PlayerEventHandler::eventDrawCards(const Event_DrawCards &event)
 
     _hand->reorganizeCards();
     _deck->reorganizeCards();
+    int groupIndex = 0;
+    for (auto *card : drawnCards) {
+        const QPointer<CardItem> guardedCard(card);
+        const QPointer<QGraphicsScene> expectedScene(card->scene());
+        const QString expectedName = card->getName();
+        CardDrawAnimation::Request request;
+        request.card = card;
+        request.libraryCenter = libraryCenter;
+        request.libraryScale = libraryScale;
+        request.name = expectedName;
+        request.roundCorners = SettingsCache::instance().cardsDisplay().getRoundCardCorners();
+        request.readingAura = [guardedCard]() {
+            return CardHalo::colorsForIdentity(guardedCard->getCard().getInfo().getProperty(Mtg::ColorIdentity), false);
+        };
+        request.directToHand = event.number() > 3 || listSize > 3;
+        request.groupSize = request.directToHand ? 1 : drawnCards.size();
+        request.groupIndex = groupIndex++;
+        request.mayReveal = [guardedCard, expectedScene, expectedName]() {
+            return guardedCard && guardedCard->getZone() && guardedCard->getZone()->getName() == ZoneNames::HAND &&
+                   expectedScene && guardedCard->scene() == expectedScene && guardedCard->getOwner() &&
+                   guardedCard->getOwner()->getPlayerInfo()->getLocal() && !guardedCard->getFaceDown() &&
+                   !guardedCard->getOwner()->getGame()->getPlayerManager()->isSpectator() &&
+                   guardedCard->getName() == expectedName;
+        };
+        request.picture = [guardedCard](bool faceUp) {
+            QPixmap image;
+            const QSize size(CardDimensions::WIDTH * 6, CardDimensions::HEIGHT * 6);
+            if (faceUp && guardedCard) {
+                CardPictureLoader::getPixmap(image, guardedCard->getCard(), size);
+            } else {
+                CardPictureLoader::getCardBackPixmap(image, size);
+            }
+            return image;
+        };
+        CardDrawAnimation::enqueue(card->scene(), std::move(request));
+    }
     emit logDrawCards(player, event.number(), _deck->getCards().size() == 0);
 }
 
@@ -653,7 +784,7 @@ void PlayerEventHandler::processGameEvent(GameEvent::GameEventType type,
             eventDumpZone(event.GetExtension(Event_DumpZone::ext));
             break;
         case GameEvent::MOVE_CARD:
-            eventMoveCard(event.GetExtension(Event_MoveCard::ext), context);
+            eventMoveCard(event.GetExtension(Event_MoveCard::ext), context, options);
             break;
         case GameEvent::FLIP_CARD:
             eventFlipCard(event.GetExtension(Event_FlipCard::ext));
@@ -665,7 +796,7 @@ void PlayerEventHandler::processGameEvent(GameEvent::GameEventType type,
             eventAttachCard(event.GetExtension(Event_AttachCard::ext));
             break;
         case GameEvent::DRAW_CARDS:
-            eventDrawCards(event.GetExtension(Event_DrawCards::ext));
+            eventDrawCards(event.GetExtension(Event_DrawCards::ext), options);
             break;
         case GameEvent::REVEAL_CARDS:
             eventRevealCards(event.GetExtension(Event_RevealCards::ext), options);

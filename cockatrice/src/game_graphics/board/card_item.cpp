@@ -18,6 +18,7 @@
 #include "../game_scene.h"
 #include "arrow_item.h"
 #include "card_drag_item.h"
+#include "card_placement_effect.h"
 #include "libcockatrice/card/printing/exact_card.h"
 #include "libcockatrice/protocol/pb/serverinfo_cardcounter.pb.h"
 
@@ -43,6 +44,7 @@
 #include <QVariant>
 #include <QtGlobal>
 #include <libcockatrice/card/card_info.h>
+#include <libcockatrice/card/game_specific_terms.h>
 #include <libcockatrice/protocol/pb/serverinfo_card.pb.h>
 #include <libcockatrice/settings/interface_settings.h>
 #include <libcockatrice/utility/card_ref.h>
@@ -92,6 +94,7 @@ void CardItem::prepareDelete()
 
 void CardItem::deleteLater()
 {
+    cancelPlacementAnimation();
     prepareDelete();
     if (scene()) {
         static_cast<GameScene *>(scene())->unregisterAnimationItem(this);
@@ -102,6 +105,7 @@ void CardItem::deleteLater()
 void CardItem::setZone(CardZoneLogic *_zone)
 {
     if (state->getZone() != _zone) {
+        cancelPlacementAnimation();
         setHandFanAngle(0.0);
 
         if (state->getZone() != nullptr &&
@@ -274,6 +278,10 @@ void CardItem::setPT(const QString &_pt)
 
 void CardItem::setAttachedTo(CardItem *_attachedTo)
 {
+    cancelPlacementAnimation();
+    if (_attachedTo) {
+        _attachedTo->cancelPlacementAnimation();
+    }
     if (state->getAttachedTo() != nullptr) {
         state->getAttachedTo()->removeAttachedCard(this);
     }
@@ -345,6 +353,7 @@ void CardItem::processCardInfo(const ServerInfo_Card &_info)
 
 CardDragItem *CardItem::createDragItem(int _id, const QPointF &_pos, const QPointF &_scenePos, bool forceFaceDown)
 {
+    cancelPlacementAnimation();
     deleteDragItem();
     dragItem = new CardDragItem(this, _id, _pos, forceFaceDown);
     dragItem->setVisible(false);
@@ -361,6 +370,26 @@ void CardItem::deleteDragItem()
         dragItem->deleteLater();
     }
     dragItem = nullptr;
+}
+
+void CardItem::cancelPlacementAnimation()
+{
+    delete placementEffect.data();
+    placementEffect.clear();
+}
+
+void CardItem::animatePlacement()
+{
+    if (!scene() || !getZone() || getZone()->getName() != ZoneNames::TABLE) {
+        return;
+    }
+    cancelPlacementAnimation();
+    placementEffect = new CardPlacementEffect(
+        shape(),
+        [this]() {
+            return CardHalo::colorsForIdentity(getCard().getInfo().getProperty(Mtg::ColorIdentity), getFaceDown());
+        },
+        this);
 }
 
 void CardItem::drawArrow(const QColor &arrowColor)
