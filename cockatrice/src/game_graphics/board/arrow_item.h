@@ -33,16 +33,13 @@ signals:
 
 private:
     QPainterPath path;
-    QPainterPath bodyPath;
     QPainterPath headPath;
-    QPainterPath shaftOutlinePath;
     QPainterPath centerLine;
-    qreal headBaseFraction = 1.0;
     QElapsedTimer animationClock;
     qreal strokeDurationMs = 0;
-    qreal glowFadeDurationMs = 0;
     qreal drawProgress = 1.0;
-    qreal glowAlpha = 0.0;
+    qreal animationSeconds = 0.0;
+    qint64 lastAnimationFrame = -1;
     bool animationStarted = false;
 
     static constexpr qreal glowExtent = 12.0;
